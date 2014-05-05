@@ -1,0 +1,354 @@
+import time
+start_time = time.time()
+
+
+import numpy as np
+
+           
+class CoefTrans(object):
+    """   
+     Transmission Coefficient class: sound transmission through a layer at normal incidence
+     3 columns of floats
+     Format: [frequency (Hz); magnitud spectrum (dB); phase spectrum (rad)] """
+    
+    def __init__(self,CT):
+        self.CT = CT
+        
+    def __str__(self):
+        return self.CT
+        
+    def freq(self):
+        return self.CT[:,0]
+        
+    def mag(self):
+        return self.CT[:,1]
+        
+    def phase(self):
+        return self.CT[:,2]
+        
+    def errorM(self,other):    
+        """ Difference (square minima) between measured and calculated magnitude spectrum """
+        return (sum(((self.mag() - other.mag()) / self.mag()) ** 2)) ** (1.0/2.0) / len(self.CT[:,1]) * 100
+        
+    def errorPh2(self,other):
+        return (sum(((self.phase() - other.phase()) ) ** 2)) ** (1.0/2.0) / len(self.CT[:,2]) * 100
+                
+    def fres(self):
+        """ Fres function applies to a Transmission Coefficient
+        and returns four parameters: Resonant frequency (Hz); Magnitud spectrum value at resonance (dB); Phase spectrum value at resonance (rad)
+        index of the resonant frequency (in the frequency vector """
+
+        n = 0
+        while not (self.mag()[n] == max(self.mag()) ):
+            n += 1
+        return [self.freq()[n], self.mag()[n], self.phase()[n], n]
+                       
+    def Q(self):
+        """ This function applies to a transmission coefficient and returns Q factor and the index of the
+        frequency vector that corresponds to the masimum value of the amplitude spectrum (resonant frequency) """
+        
+        ind = self.fres()[3]
+        indm = ind
+        indM = ind
+        limit1 = 0
+        limit2 = 0
+        while self.mag()[ind] - self.mag()[indm] < 3:
+            indm -= 1
+            if indm == 0:
+                limit1 = 1
+                break
+        while self.mag()[ind] - self.mag()[indM] < 3:
+            indM += 1
+            if indM == len(self.mag()):
+                limit2 = 1
+                break
+        
+        if limit1 + limit2 == 0:
+            return [(self.freq()[indM] - self.freq()[indm]) / self.fres()[0], (indm + indM) / 2]
+        if limit1 == 1:
+            return [2 * (self.freq()[indM] - self.fres()[0]) / self.fres()[0], self.fres()[3]]
+        if limit2 == 1:
+            return [2 * (self.fres()[0] - self.freq()[indm]) / self.fres()[0], self.fres()[3]]
+        if limit1 + limit2 == 2:
+            raise NameError('There is no resonance')
+
+
+    def ParamPunt(self,other): 
+        """ Other es un medium
+        calcula los parametros de la capa a partir de la medida de coef Trans
+        en particular, emplea los valores obtenidos a fres """
+        
+        tiempo = self.fres()[2] / (2 * 3.14159 * self.fres()[0])
+        espesor = other.v_med * (tiempo + 1 / (2 * self.fres()[0]))
+        velocidad = 2 * espesor * self.fres()[0]
+        z1 = other.v_med * other.rho_med
+        att = 3.1415926549 * self.fres()[0] / ( velocidad / self.Q()[0] )
+        c = attyRho(att, espesor, 10 ** (self.fres()[1] /20))
+        att = c[0]
+        rho = z1 / c[1] / velocidad
+
+        return [espesor, velocidad, att, rho, 1, self.fres()[0]]
+        
+       
+    def ResWindow(self, BOUND):
+        """ This function applies to a Transmission Coefficient and takes the argument BOUND which is a negative integer.
+        in (dB). It returns a transmission coefficient that is the one taken as argument but limited to the frequency band
+        that correspond to Maximum value of transmission coefficient magnitude -BOUND. """
+        
+        ind = self.fres()[3]
+        indm = ind
+        indM = ind
+        limit1 = 0
+        limit2 = 0
+        while self.mag()[ind] - self.mag()[indm] < BOUND:
+            indm -= 1
+            if indm == 0:
+                limit1 = 1
+                break
+        while self.mag()[ind] - self.mag()[indM] < BOUND:
+            indM += 1
+            if indM == len(self.mag()):
+                limit2 = 1
+                break
+        teoarr=np.vstack((self.freq()[indm:indM], self.mag()[indm:indM], self.phase()[indm:indM]))
+        return CoefTrans(teoarr.T)
+
+              
+class medium(object):
+    def __init__(self,rho_med,v_med):
+        self.rho_med = rho_med
+        self.v_med = v_med
+    def __str__(self):
+        return 'Density (kg/m3): ' + str(self.rho_med) + '; Velocity (m/s): ' + str(self.v_med)
+
+    
+class layer(object):
+
+    def __init__(self,lay):
+        self.lay = lay
+    
+    def thick_layer(self):
+        return self.lay[0]    
+    
+    def v_layer(self):
+        return self.lay[1]
+        
+    def att_layer(self):
+        return self.lay[2]
+
+    def rho_layer(self):
+        return self.lay[3] 
+
+    def efa_layer(self):
+        return self.lay[4]
+        
+    def frec0_layer(self):
+        return self.lay[5]
+        
+    def __str__(self):
+        return 'Thickness (um): ' + str(self.thick_layer()*1e6) + '; Velocity (m/s): ' + str(self.v_layer()) + '; Attenuation @ resonant frequency(Np/m): ' + str(self.att_layer()) + '; Density (kg/m3): ' +  str(self.rho_layer()) + '; EFA: ' + str(self.efa_layer()) + '; Resonant frequency (Hz): ' + str(self.frec0_layer())
+        
+def attyRho(alf,esp,Tmax):
+    
+    """    Calculates attenuation and impedance ratio from initial parameter estimation   """ 
+        
+    r = np.sin(alf * esp) / 2 * Tmax
+    R = (( 1 - r ) ** 2 ) / (( 1 + r ) ** 2 )
+    alf = alf - np.log(R) / (2 * esp)
+    return [alf, r]
+
+            
+def cT_teo(medium,cT_exp):
+    z1 = medium.rho_med * medium.v_med
+    freq = cT_exp.freq()
+    j = complex(0, 1)
+    k = 2 * 3.14159 * freq / cT_exp.ParamPunt(medium)[1] + j * cT_exp.ParamPunt(medium)[2] * ((freq / cT_exp.fres()[0]) ** (cT_exp.ParamPunt(medium)[4] ))
+    veloc = 2 * 3.141592 * freq / k
+    z2 = veloc * cT_exp.ParamPunt(medium)[3]
+    espesor = cT_exp.ParamPunt(medium)[0]
+    T = - 2.0 * z1 * z2 / (2 * z1 * z2 * np.cos(k * espesor) + j * (z1 ** 2 + z2 **2) * np.sin(k * espesor))
+    Tm = 20 * np.log10( abs (T))
+    Tphas = np.unwrap(2 * 3.1415926 * freq * espesor / medium.v_med - np.angle(T))
+    teoarr=np.vstack((freq, Tm, Tphas))
+    return CoefTrans(teoarr.T)
+    
+def cT_layer(medium,layer,freq):
+    z1 = medium.rho_med * medium.v_med
+    j = complex(0, 1)
+    k = 2 * 3.14159 * freq / layer.v_layer() + j * layer.att_layer() * (freq / layer.frec0_layer()) ** layer.efa_layer()
+    veloc = 2 * 3.141592 * freq / k
+    z2 = veloc * layer.rho_layer()
+    T = - 2.0 * z1 * z2 / (2 * z1 * z2 * np.cos(k * layer.thick_layer()) + j * (z1 ** 2 + z2 **2) * np.sin(k * layer.thick_layer()))
+    Tm = 20 * np.log10( abs (T))
+    Tphas = np.unwrap(2 * 3.1415926 * freq * layer.thick_layer() / medium.v_med - np.angle(T))
+    teoarr=np.vstack((freq, Tm, Tphas))
+    return CoefTrans(teoarr.T)
+                
+def fitt_EFA2(medium, cT_exp, layer0):
+    Flag = 0
+    cTlayer0 = cT_layer(medium, layer0, cT_exp.freq())
+    ErrorM0 = cTlayer0.errorM(cT_exp)
+    ErrorPh0 = cTlayer0.errorPh2(cT_exp)
+    for n in range(0,20,1):
+        layerT = layer([layer0.thick_layer(), layer0.v_layer(), layer0.att_layer(), layer0.rho_layer(), n/10.0, layer0.frec0_layer()])
+        cTlayerT = cT_layer(medium, layerT, cT_exp.freq())
+        ErrorM = cTlayerT.errorM(cT_exp)
+        ErrorPh = cTlayerT.errorPh2(cT_exp)
+            
+        if  ErrorM + ErrorPh < ErrorM0 + ErrorPh0: #and ErrorPh < ErrorPh0:
+            Flag = 1
+            layerMin = layerT
+                
+    if Flag == 1:
+        return layerMin
+    else:
+        return layer0    
+        
+def F_Error(medium,cT_exp,layer0):
+    """" Computes the error of a given calculated transmission coefficient spectra and the measured one """
+    
+    cTlayer0 = cT_layer(medium, layer0, cT_exp.freq())
+    Error = [cTlayer0.errorM(cT_exp), cTlayer0.errorPh2(cT_exp)]
+    return Error
+
+def Grad_Error(medium,cT_exp,layer0,delta):
+    """ Computes the local gradient of the error function"""
+    
+    Error0 = F_Error(medium,cT_exp,layer0)
+    grad = [1 - delta, 1.0, 1 + delta]
+    layer_list = [layer0.thick_layer(), layer0.v_layer(), layer0.att_layer(), layer0.rho_layer(), layer0.efa_layer(), layer0.frec0_layer()]
+    layer_fin = layer_list[:]
+    layer_test = layer_list[:]
+    
+    for step1 in grad:
+        layer_test[0] = layer_list[0] * step1
+        for step2 in grad:
+            layer_test[1] = layer_list[1] * step2
+            for step3 in grad:
+                layer_test[2] = layer_list[2] * step3
+                for step4 in grad:
+                    layer_test[3] = layer_list[3] * step4
+                    for step5 in grad:
+                        layer_test[4] = layer_list[4] * step5
+                        layerT = layer(layer_test)
+                        Error = F_Error(medium,cT_exp,layerT)
+                        if Error[0] < Error0[0] and Error[1] < Error0[1]:
+                            layer_fin[:] = layer_test[:]
+                            Error0 = Error[:]
+    return layer(layer_fin)
+     
+def Walk_downGradient(medium,cT_exp,layer0,delta,MaxSteps,Prec):
+    """ This function takes one step in the fitting procedure douwn the gradient in the error hiperspace  """
+    
+    max = 0
+    layerF = Grad_Error(medium,cT_exp,layer0,delta)
+    Error0 = F_Error(medium,cT_exp,layer0)
+    Error = F_Error(medium,cT_exp,layerF)
+    while Error[0] < Error0[0] * Prec and Error[1] < Error0[1] * Prec: 
+        layer0 = layerF
+        layerF = Grad_Error(medium,cT_exp,layer0,delta)
+        #print layerF
+        Error0 = F_Error(medium,cT_exp,layer0)
+        Error = F_Error(medium,cT_exp,layerF)
+        max += 1
+        if max > MaxSteps:
+            break
+    return [layer0.thick_layer(), layer0.v_layer(), layer0.att_layer(), layer0.rho_layer(), layer0.efa_layer(), layer0.frec0_layer(), max]
+
+
+try:
+    fpath = open('c:\Python27\Scripts\path_CT.txt')
+    for line in fpath:
+        path = line
+
+    fpath.close()
+except IOError:
+    path = 'c:\\Python27\\Scripts\\'
+
+try:
+    data = np.loadtxt(path + 'input_python14.txt')
+except IOError:
+    data = np.array([1.204, 343, 10, 400, 0.01, 0.99999, 1])
+    #default input data:
+    #surrounding fluid: air @ 20 C
+    #resonance bandwidth: -20 dB of the peak value
+    #Maximum 400 steps in GD
+    #Fixed step size: 0.01
+    #Minimum error improvement
+    #Graphic display 1: yes; 0: no
+
+caso1 = medium(data[0], data[1])
+LIMITE = data[2]
+MaxSteps = data[3]
+delta = data[4]
+Prec = data[5]
+GraphOutput = data[6]
+
+try:
+    test0 = np.loadtxt(path + 'test23.dat')
+except IOError:
+    FileName = raw_input('Name of the file with the transmission coefficient spectra, include extension, (default path is c:\Python27\Scripts\) ')
+    test0 = np.loadtxt(path + FileName)
+    
+test1 = test0[np.argsort(test0[:,0])]
+
+cttest1 = CoefTrans(test1)
+
+aa = layer(cttest1.ParamPunt(caso1))
+fit = Walk_downGradient(caso1,cttest1.ResWindow(LIMITE),aa,delta,MaxSteps,Prec)
+fitt = layer(fit[0:6])
+lfinEFA = fitt_EFA2(caso1, cttest1, fitt )
+
+cT_fin = cT_layer(caso1, lfinEFA, cttest1.freq())
+
+f0 = open(path + 'output.dat','w')
+f2 = open(path + 'output2.dat','w')
+
+ind = 0
+for FR in cT_fin.freq():
+    linea = str(cT_fin.freq()[ind].real) + ' ' + str(cT_fin.mag()[ind].real) + ' ' + str(cT_fin.phase()[ind].real) +'\n'
+    f0.write(linea)
+    ind += 1
+
+ERROR_0 = F_Error(caso1,cttest1.ResWindow(LIMITE),aa)
+ERROR_FIN = F_Error(caso1,cttest1.ResWindow(LIMITE),lfinEFA)
+
+etime = time.time() - start_time
+
+data0 = str(lfinEFA.thick_layer().real) + ' ' + str(lfinEFA.v_layer().real) + ' ' + str(lfinEFA.att_layer().real) + ' ' + str(lfinEFA.rho_layer().real) + ' ' + str(lfinEFA.efa_layer().real) + ' ' + str(lfinEFA.frec0_layer().real) +'\n'
+data1 = str(ERROR_0[0]) + ' ' + str(ERROR_0[1]) + ' ' + str(ERROR_FIN[0]) + ' ' + str(ERROR_FIN[1]) + ' ' + str(fit[6]) + ' ' + str(LIMITE) +'\n'
+data2 = str(1.0/cttest1.Q()[0]) + ' ' + str(max(cttest1.mag())) + ' ' + str(etime) + ' ' + str(MaxSteps) + ' ' + str(delta) + ' ' + str(Prec)
+
+
+f2.write(data0 + data1 + data2)
+
+f0.close()
+f2.close()
+
+if GraphOutput == 1:
+    cT_band = cT_layer(caso1, lfinEFA, cttest1.ResWindow(LIMITE).freq())
+    import pylab
+    pylab.figure(1)
+    pylab.subplot(211)
+    pylab.title('Transmission coeff. Results in the fitting frequency band -' + str(LIMITE)+'dB')
+    pylab.xlabel('Frequency (MHz)')
+    pylab.ylabel('TC Magnitude Spectrum (dB)')
+    pylab.plot(cT_band.freq()/1e6, cT_band.mag(),cttest1.ResWindow(LIMITE).freq()/1e6,cttest1.ResWindow(LIMITE).mag(),'o')
+    pylab.subplot(212)
+
+    pylab.xlabel('Frequency (MHz)')
+    pylab.ylabel('CT Phase Spectrum (rad)')
+    pylab.plot(cT_band.freq()/1e6, cT_band.phase(),cttest1.ResWindow(LIMITE).freq()/1e6,cttest1.ResWindow(LIMITE).phase(),'o')
+    pylab.figure(2)
+    pylab.subplot(211)
+    pylab.title('Transmission coeff. Results in the whole frequency range')
+    pylab.xlabel('Frequency (MHz)')
+    pylab.ylabel('TC Magnitude Spectrum (dB)')
+    pylab.plot(cT_fin.freq()/1e6, cT_fin.mag(),cttest1.freq()/1e6,cttest1.mag(),'o')
+    pylab.subplot(212)
+    
+    pylab.xlabel('Frequency (MHz)')
+    pylab.ylabel('CT Phase Spectrum (rad)')
+    pylab.plot(cT_fin.freq()/1e6, cT_fin.phase(),cttest1.freq()/1e6,cttest1.phase(),'o')
+    pylab.show()
+    
