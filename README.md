@@ -44,7 +44,7 @@ INPUT:
      
     If the file:  \medida.dat is no found, then he program ask for the file name, including extension, (raw_input)
      
-ADVANCED INOUT DATA:
+ADVANCED IN/OUT DATA:
     
    Other input data can be provided by creating the file: 'input_python14.txt' in c:\Python27\Scripts\ 
    or in the user defined path.
